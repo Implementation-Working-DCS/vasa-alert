@@ -7,7 +7,7 @@ import logging
 from dotenv import load_dotenv
 import tkinter as tk
 from tkinter import ttk
-from playsound import playsound  # Librería para reproducir sonidos
+import pygame  # Importar pygame para reproducir sonidos
 from threading import Thread
 
 load_dotenv()
@@ -43,6 +43,7 @@ password = os.getenv("OPERADOR_PASSWORD")
 imap_host = os.getenv("IMAP_SERVER")
 imap_port = 993
 label = os.getenv("GMAIL_LABEL")  # Nombre de la etiqueta específica
+highlight_color = "#FF8E8E"  # Color de fondo específico para correos recientes
 
 # Inicializar el logger
 logger = logging.getLogger()
@@ -62,14 +63,46 @@ tree.heading("Asunto", text="Asunto")
 tree.heading("Hora", text="Hora")
 tree.pack(fill=tk.BOTH, expand=True)
 
+# Inicializar pygame para reproducir sonidos
+pygame.mixer.init()
+
+# Tamaño de la fuente inicial
+font_size = 10
+
+# Función para cambiar el tamaño de la fuente
+def cambiar_tamaño_fuente(aumento):
+    global font_size
+    if aumento:
+        font_size += 1
+    else:
+        font_size -= 1
+    tree.tag_configure("default", font=("Arial", font_size))
+    tree.tag_configure("highlight", font=("Arial", font_size))
+
+# Botones para aumentar y disminuir el tamaño de la fuente
+btn_aumentar = tk.Button(root, text="+", command=lambda: cambiar_tamaño_fuente(True))
+btn_aumentar.pack(side=tk.LEFT)
+btn_disminuir = tk.Button(root, text="-", command=lambda: cambiar_tamaño_fuente(False))
+btn_disminuir.pack(side=tk.LEFT)
+
 # Función para reproducir el sonido
 def reproducir_sonido():
-    playsound('alerta.mp3')  # Ruta al archivo de sonido
+    pygame.mixer.music.load('alerta.mp3')  # Ruta al archivo de sonido
+    pygame.mixer.music.play()
 
 # Función para actualizar la lista de correos en la interfaz de Tkinter
 def actualizar_lista(asunto, hora):
-    tree.insert("", "end", values=(asunto, hora))
+    now = datetime.datetime.now()
+    email_time = datetime.datetime.strptime(hora, '%Y-%m-%d %H:%M:%S')
+    tag = "default"
+    if (now - email_time).total_seconds() < 300:  # Menos de 5 minutos
+        tag = "highlight"
+    tree.insert("", "end", values=(asunto, hora), tags=(tag,))
     Thread(target=reproducir_sonido).start()
+
+# Configurar tags para el Treeview
+tree.tag_configure("default", font=("Arial", font_size))
+tree.tag_configure("highlight", background=highlight_color, font=("Arial", font_size))
 
 def revisar_correos():
     global dia_actual
@@ -103,17 +136,23 @@ def revisar_correos():
                     # Actualizar la lista de correos en la interfaz de Tkinter
                     actualizar_lista(subject, hora)
 
+            # Actualizar colores de los correos existentes
+            for item in tree.get_children():
+                values = tree.item(item, "values")
+                email_time = datetime.datetime.strptime(values[1], '%Y-%m-%d %H:%M:%S')
+                if (datetime.datetime.now() - email_time).total_seconds() >= 300:
+                    tree.item(item, tags=("default",))
+
             mail.logout()
         except imaplib.IMAP4.error as e:
             print(f"Error al procesar el correo: {e}")
             logging.error(f'Error al procesar el correo: {e}')
             time.sleep(60)  # Espera 60 segundos antes de intentar reconectar
         except Exception as e:
-            print(f"Error al procesar el correo: {e}")
             logging.error(f'Error al procesar el correo: {e}')
-        # Espera 15 segundos antes de revisar el correo nuevamente
-        time.sleep(15)
-        logging.info('Esperando 15 segundos antes de revisar el correo nuevamente')
+        # Espera 1 segundo antes de revisar el correo nuevamente
+        time.sleep(1)
+        logging.info('Esperando 1 segundo antes de revisar el correo nuevamente')
 
 # Ejecutar la función de revisar correos en un hilo separado
 Thread(target=revisar_correos).start()
